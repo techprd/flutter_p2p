@@ -20,13 +20,16 @@ class FlutterP2pPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     /// This local reference serves to register the plugin with the Flutter Engine and unregister it
     /// when the Flutter Engine is detached from the Activity
     private lateinit var channel: MethodChannel
+    private lateinit var discoveryChannel: MethodChannel
     private var mNsdPlugin: NsdPlugin? = null
     private lateinit var mainHandler: Handler
     private lateinit var mContext: Context
+    private var isDiscovery: Boolean = false
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         mContext = flutterPluginBinding.applicationContext
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.techprd/flutter_nsd")
+        discoveryChannel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.techprd.NSD.discovery")
         channel.setMethodCallHandler(this)
         mainHandler = Handler(Looper.getMainLooper())
         Timber.d("Plugin initialized successfully")
@@ -38,18 +41,35 @@ class FlutterP2pPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 Timber.d("getPlatformVersion")
                 result.success("Android ${android.os.Build.VERSION.RELEASE}")
             }
-            "isConnected" -> {
-                result.notImplemented()
-            }
             "initNSD" -> {
                 mNsdPlugin = NsdPlugin(mContext)
                 mNsdPlugin?.initializeNsd()
-                result.success("Android ${android.os.Build.VERSION.RELEASE}")
+            }
+            "stopNSD" -> {
+                mNsdPlugin?.tearDown()
+                isDiscovery = false
+                mNsdPlugin = null
             }
             "startNSDBroadcasting" -> {
                 call.argument<String>("serviceName")?.let { mNsdPlugin?.setServiceName(serviceName = it) }
                 call.argument<String>("serviceType")?.let { mNsdPlugin?.setServiceType(type = it) }
-                mNsdPlugin?.registerService(port = call.argument<Int>("port")!!)
+                mNsdPlugin?.initializeServerSocket()
+                mNsdPlugin?.registerService()
+                result.success(mNsdPlugin?.mLocalPort)
+            }
+            "stopNSDBroadcasting" -> {
+                mNsdPlugin?.tearDown()
+            }
+            "searchForLocalDevices" -> {
+                isDiscovery = true
+                mNsdPlugin?.setDiscoveryChannel(discoveryChannel)
+                call.argument<String>("serviceName")?.let { mNsdPlugin?.setServiceName(serviceName = it) }
+                call.argument<String>("serviceType")?.let { mNsdPlugin?.setServiceType(type = it) }
+                mNsdPlugin?.discoverServices()
+            }
+            "stopSearch" -> {
+                isDiscovery = false
+                mNsdPlugin?.stopDiscovery()
             }
             else -> {
                 result.notImplemented()
@@ -59,21 +79,35 @@ class FlutterP2pPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        if (isDiscovery) mNsdPlugin?.stopDiscovery()
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        TODO("Not yet implemented")
+        Timber.plant(Timber.DebugTree())
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
-        TODO("Not yet implemented")
+        if (!isDiscovery) {
+            mNsdPlugin?.stopDiscovery()
+            Timber.d("Discovery stopped on pause")
+        }
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        TODO("Not yet implemented")
+        object : Thread() {
+            override fun run() {
+                try {
+                    if (isDiscovery) mNsdPlugin?.discoverServices()
+                } catch (ex: Exception) {
+                    Timber.e(ex, "Exception in thread:onResume")
+                }
+            }
+        }.start()
     }
 
     override fun onDetachedFromActivity() {
-        TODO("Not yet implemented")
+        mNsdPlugin?.tearDown()
+        isDiscovery = false
+        mNsdPlugin = null
     }
 }

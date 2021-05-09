@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_p2p/flutter_p2p.dart';
 
 void main() {
@@ -14,43 +12,85 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  String _platformVersion = 'Unknown';
+  String _platformResponse = 'Unknown';
+  FlutterP2p flutterP2p = FlutterP2p();
 
   @override
   void initState() {
     super.initState();
-    initPlatformState();
-  }
-
-  // Platform messages are asynchronous, so we initialize in an async method.
-  Future<void> initPlatformState() async {
-    String platformVersion;
-    // Platform messages may fail, so we use a try/catch PlatformException.
-    try {
-      platformVersion = await FlutterP2p.platformVersion;
-    } on PlatformException {
-      platformVersion = 'Failed to get platform version.';
-    }
-
-    // If the widget was removed from the tree while the asynchronous platform
-    // message was in flight, we want to discard the reply rather than calling
-    // setState to update our non-existent appearance.
-    if (!mounted) return;
-
-    setState(() {
-      _platformVersion = platformVersion;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
+    var clients = [];
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: Center(
-          child: Text('Running on: $_platformVersion\n'),
+        body: SingleChildScrollView(
+          physics: ScrollPhysics(),
+          child: Column(
+            children: [
+              ElevatedButton(
+                  onPressed: () async {
+                    FlutterP2p.initNSD;
+                    var port = await FlutterP2p.startNSDBroadcasting;
+                    setState(() {
+                      _platformResponse = "running on port: $port";
+                    });
+                  },
+                  child: Text("start Broadcasting")),
+              ElevatedButton(
+                  onPressed: () async {
+                    FlutterP2p.stopNSDBroadcasting;
+                    FlutterP2p.stopNSD;
+                    setState(() {
+                      _platformResponse = "not running";
+                    });
+                  },
+                  child: Text("stop Broadcasting")),
+              ElevatedButton(
+                  onPressed: () async {
+                    await flutterP2p.searchForLocalDevices;
+                  },
+                  child: Text("start discovery")),
+              ElevatedButton(
+                  onPressed: () async {
+                    await FlutterP2p.stopSearch;
+                  },
+                  child: Text("stop discovery")),
+              Text(_platformResponse),
+              Divider(),
+              StreamBuilder<NsdServiceInfo>(
+                  stream: flutterP2p.stream,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData) {
+                      clients.add(snapshot.data);
+                      return ListView.builder(
+                          physics: NeverScrollableScrollPhysics(),
+                          shrinkWrap: true,
+                          itemCount: clients.length,
+                          itemBuilder: (context, index) {
+                            return Card(
+                              child: ListTile(
+                                leading: Icon(Icons.phone_android),
+                                title: Text(clients[index].name),
+                                subtitle: Text(clients[index].host +
+                                    " : " +
+                                    clients[index].port.toString()),
+                              ),
+                            );
+                          });
+                    }
+                    return Center(
+                        child: SizedBox(
+                            width: 50.0,
+                            height: 50.0,
+                            child: const CircularProgressIndicator()));
+                  })
+            ],
+          ),
         ),
       ),
     );

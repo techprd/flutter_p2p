@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 class FlutterP2p {
   static const MethodChannel _channel =
       const MethodChannel('com.techprd/flutter_nsd');
+  static const MethodChannel _discoveryChannel =
+      const MethodChannel('com.techprd.NSD.discovery');
 
   static final FlutterP2p _instance = FlutterP2p._internal();
 
@@ -27,27 +27,58 @@ class FlutterP2p {
     return version;
   }
 
-  static Future<bool> get initNSD async {
-    return await _channel.invokeMethod('initNSD');
+  static Future get initNSD async {
+    await _channel.invokeMethod('initNSD');
   }
 
-  static Future<Map<String, String>> get startNSDBroadcasting async {
-    return await _channel.invokeMethod('startNSDBroadcasting');
+  static Future<void> get stopNSD async {
+    await _channel.invokeMethod('stopNSD');
   }
 
-  static Future<Map<String, String>> get searchForLocalDecvices async {
-    return await _channel.invokeMethod('searchForLocalDecvices');
+  static Future<int> get startNSDBroadcasting async {
+    var socketPort = await _channel.invokeMethod('startNSDBroadcasting');
+    return socketPort;
+  }
+
+  static Future get stopNSDBroadcasting async {
+    await _channel.invokeMethod("stopNSDBroadcasting");
+  }
+
+  Future<void> get searchForLocalDevices async {
+    _discoveryChannel.setMethodCallHandler((call) => discoveryHandler(call));
+    await _channel.invokeMethod('searchForLocalDevices');
+  }
+
+  Future<void> discoveryHandler(MethodCall call) async {
+    switch (call.method) {
+      case "foundHost":
+        var host = NsdServiceInfo(call.arguments["host"],
+            call.arguments["port"], call.arguments["name"]);
+        print(host);
+        _streamController.add(host);
+        break;
+      case "lostHost":
+        var host = NsdServiceInfo(call.arguments["host"],
+            call.arguments["port"], call.arguments["name"]);
+        print("lost host: $host");
+        break;
+    }
+  }
+
+  static Future get stopSearch async {
+    await _channel.invokeMethod('stopSearch');
   }
 }
 
 /// Info class for holding discovered service
 class NsdServiceInfo {
-  final String? hostname;
+  final String? host;
   final int? port;
   final String? name;
-  final Map<String, Uint8List>? txt;
 
-  NsdServiceInfo(this.hostname, this.port, this.name, this.txt);
+  //final Map<String, Uint8List>? txt;
+
+  NsdServiceInfo(this.host, this.port, this.name);
 }
 
 /// List of possible error codes of NsdError

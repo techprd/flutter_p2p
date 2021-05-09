@@ -9,9 +9,12 @@ import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
 import timber.log.Timber
 import java.net.InetAddress
+import java.net.ServerSocket
 
 class NsdPlugin(mContext: Context) {
 
+    var mLocalPort: Int = 0
+    lateinit var serverSocket: ServerSocket
     var SERVICE_TYPE = "_http._tcp."
     var SERVICE_NAME = "com.techprd.NSD.service"
     var mNsdManager: NsdManager = mContext.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -22,6 +25,14 @@ class NsdPlugin(mContext: Context) {
     var mRegistrationListener: NsdManager.RegistrationListener? = null
     var mServiceName = "com.techprd.NSD"
     lateinit var discoverChannel: MethodChannel
+
+    fun initializeServerSocket() {
+        // Initialize a server socket on the next available port.
+        serverSocket = ServerSocket(0).also { socket ->
+            // Store the chosen port.
+            mLocalPort = socket.localPort
+        }
+    }
 
     fun initializeNsd() {
         object : Thread() {
@@ -58,14 +69,23 @@ class NsdPlugin(mContext: Context) {
                 if (service.serviceType != SERVICE_TYPE) {
                     Timber.d("Unknown Service Type: %s", service.serviceType)
                 } else if (service.serviceName.contains(SERVICE_NAME)) {
-                    mNsdManager.resolveService(service, mResolveListener)
+                    Timber.d("Resolving service $service")
+                    try {
+                        mNsdManager.resolveService(service, mResolveListener)
+                    } catch (e: Exception) {
+                        Timber.w(e, "Cannot resolve service, service resolve in progress")
+                    }
                 }
             }
 
             override fun onServiceLost(service: NsdServiceInfo) {
                 Timber.e("Service lost $service")
                 if (service.serviceName.contains(SERVICE_NAME)) {
-                    mNsdManager.resolveService(service, mLostResolveListener)
+                    try {
+                        mNsdManager.resolveService(service, mLostResolveListener)
+                    } catch (e: Exception) {
+                        Timber.w(e, "Cannot resolve lost service, service resolve in progress")
+                    }
                 }
             }
 
@@ -93,7 +113,7 @@ class NsdPlugin(mContext: Context) {
                         }
 
                         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                            Timber.e("Resolve Succeeded. $serviceInfo")
+                            Timber.d("Resolve Succeeded. $serviceInfo")
                             val port: Int = serviceInfo.port
                             val host: InetAddress = serviceInfo.host
                             val foundData: HashMap<String, Any> = HashMap()
@@ -156,19 +176,20 @@ class NsdPlugin(mContext: Context) {
         mDeviceName = name
     }
 
-    fun registerService(port: Int) {
+    fun registerService() {
         object : Thread() {
             override fun run() {
                 try {
                     tearDown() // Cancel any previous registration request
                     initializeRegistrationListener()
-                    val serviceInfo = NsdServiceInfo()
-                    serviceInfo.port = port
-                    serviceInfo.serviceName = "$SERVICE_NAME:$mDeviceName"
-                    serviceInfo.serviceType = SERVICE_TYPE
+                    val serviceInfo = NsdServiceInfo().apply {
+                        port = mLocalPort
+                        serviceName = "$SERVICE_NAME:$mDeviceName"
+                        serviceType = SERVICE_TYPE
+                    }
                     mNsdManager.registerService(serviceInfo, PROTOCOL_DNS_SD, mRegistrationListener)
                 } catch (ex: Exception) {
-                    Timber.i("Exception in thread:Register NSD host")
+                    Timber.e(ex, "Exception in thread:Register NSD host")
                 }
             }
         }.start()
